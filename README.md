@@ -1,6 +1,6 @@
 certcheck
 =========
-check HTTPS certificate validity times
+Check HTTPS certificate validity times
 
 **certcheck** [-**V**] *host* ...
 
