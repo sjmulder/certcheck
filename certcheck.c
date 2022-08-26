@@ -1,14 +1,21 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
 
-#include <unistd.h>
-#include <getopt.h>
-#include <netdb.h>
-#include <sysexits.h>
-#include <err.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+#ifdef _WIN32
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+# include <winsock2.h>
+# include <ws2tcpip.h>
+#else
+# include <unistd.h>
+# include <netdb.h>
+# include <sysexits.h>
+# include <err.h>
+# include <sys/types.h>
+# include <sys/socket.h>
+#endif
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -16,10 +23,54 @@
 
 #include "config.h"
 
+#ifdef _WIN32
+# define EX_USAGE 64
+#else
+# define closesocket(x) close(x)
+#endif
+
 static const char usage[] =
 "usage: certcheck [-V] host ...\n";
 
+#if _WIN32
+static char *argv0;
+#endif
 static SSL_CTX *ssl_ctx;
+
+#if _WIN32
+static void
+warn(char *fmt, ...)
+{
+	va_list ap;
+	char buf[512];
+	int errnum;
+
+	errnum = errno;
+
+	if (fmt) {
+		va_start(ap, fmt);
+		vsnprintf(buf, sizeof(buf), fmt, ap);
+		va_end(ap);
+
+		fprintf(stderr, "%s: %s: %s\n", argv0, buf,
+		    strerror(errnum));
+	} else
+		fprintf(stderr, "%s: %s\n", argv0, strerror(errnum));
+}
+
+static void
+warnx(char *fmt, ...)
+{
+	va_list ap;
+	char buf[512];
+
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+
+	fprintf(stderr, "%s: %s\n", argv0, buf);
+}
+#endif
 
 static void
 warn_ssl(long code, char *fmt, ...)
@@ -97,7 +148,8 @@ handle_addr(char *name, struct addrinfo *ai)
 	else if (ASN1_TIME_to_tm(date, &date_tm) != 1)
 		printf("(bad date)");
 	else {
-		strftime(date_s, sizeof(date_s), "%F %T", &date_tm);
+		strftime(date_s, sizeof(date_s), "%Y-%m-%d %H:%M:%S",
+		    &date_tm);
 		printf("%s", date_s);
 	}
 
@@ -109,7 +161,7 @@ cleanup:
 	if (ssl)
 		SSL_free(ssl);
 	if (sock)
-		close(sock);
+		closesocket(sock);
 }
 
 static void
@@ -141,19 +193,27 @@ handle_host(char *name)
 int
 main(int argc, char **argv)
 {
-	int i,c;
+	int i;
 
-	while ((c = getopt(argc, argv, "Vt:")) != -1)
-		switch (c) {
-		case 'V':
+#if _WIN32
+	argv0 = argv[0];
+#endif
+
+	for (i=1; i < argc; i++)
+		if (argv[i][0] != '-')
+			break;
+		else if (!strcmp(argv[i], "--"))
+			{ i++; break; }
+		else if (!strcmp(argv[i], "-V")) {
 			puts("certcheck " VERSION "\n");
 			return 0;
-		default:
+		} else {
+			warnx("bad flag: %s\n", argv[i]);
 			fputs(usage, stderr);
 			return EX_USAGE;
 		}
 
-	if (optind == argc) {
+	if (i == argc) {
 		fputs(usage, stderr);
 		return EX_USAGE;
 	}
@@ -163,7 +223,7 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	for (i = optind; i  < argc; i++)
+	for (; i  < argc; i++)
 		handle_host(argv[i]);
 
 	SSL_CTX_free(ssl_ctx);

@@ -1,3 +1,4 @@
 *.o
 config.h
 certcheck
+certcheck.exe
