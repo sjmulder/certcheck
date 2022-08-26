@@ -10,7 +10,7 @@ LDLIBS+=	-lssl -lcrypto
 all: certcheck
 
 clean:
-	rm -f certcheck certcheck.exe config.h *.o
+	rm -f certcheck certcheck.exe *.o
 
 install: all
 	install -d ${DESTDIR}${PREFIX}/bin \
@@ -21,10 +21,5 @@ install: all
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/certcheck \
 	      ${DESTDIR}${MANPREFIX}/man1/certcheck.1
-
-certcheck.o: config.h
-
-config.h: Makefile
-	echo '#define VERSION "${VERSION}"' >config.h
 
 .POHNY: all clean install uninstall

@@ -21,7 +21,7 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 
-#include "config.h"
+#define VERSION "0.1"
 
 #ifdef _WIN32
 # define EX_USAGE 64
