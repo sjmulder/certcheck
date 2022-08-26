@@ -60,12 +60,12 @@ handle_addr(char *name, struct addrinfo *ai)
 
 	sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
 	if (sock == -1) {
-		warn("[%s]:%s (%s)", name, numeric, port);
+		warn("[%s]:%s (%s)", numeric, port, name);
 		goto cleanup;
 	}
 
 	if ((res = connect(sock, ai->ai_addr, ai->ai_addrlen)) == -1) {
-		warn("[%s]:%s (%s)", name, numeric, port);
+		warn("[%s]:%s (%s)", numeric, port, name);
 		goto cleanup;
 	}
 
