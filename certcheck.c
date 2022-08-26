@@ -12,7 +12,6 @@
 # include <unistd.h>
 # include <netdb.h>
 # include <sysexits.h>
-# include <err.h>
 # include <sys/types.h>
 # include <sys/socket.h>
 #endif
@@ -21,77 +20,44 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 
-#define VERSION "0.1"
+#define PROGNAME	"certcheck"
+#define VERSION		"0.1"
 
 #ifdef _WIN32
-# define EX_USAGE 64
+# define sock_errno()	(WSAGetLastError())
+# define EX_USAGE	64
 #else
-# define closesocket(x) close(x)
+# define sock_errno()	(errno)
+# define closesocket(x)	(close(x))
+# define SOCKET		int
+# define SOCKET_ERROR	-1
+# define INVALID_SOCKET	-1
 #endif
+
+typedef char *strerror_fn(int);
 
 static const char usage[] =
-"usage: certcheck [-V] host ...\n";
-
-#if _WIN32
-static char *argv0;
-#endif
+    "usage: certcheck [-V] host ...\n";
 static SSL_CTX *ssl_ctx;
 
-#if _WIN32
-static void
-warn(char *fmt, ...)
+static const char *
+strerror_wrap(strerror_fn *fn, int code)
 {
-	va_list ap;
-	char buf[512];
-	int errnum;
+	static char buf[128];
+	const char *s;
 
-	errnum = errno;
+	if ((s = fn(code)) && s[0])
+		return s;
 
-	if (fmt) {
-		va_start(ap, fmt);
-		vsnprintf(buf, sizeof(buf), fmt, ap);
-		va_end(ap);
-
-		fprintf(stderr, "%s: %s: %s\n", argv0, buf,
-		    strerror(errnum));
-	} else
-		fprintf(stderr, "%s: %s\n", argv0, strerror(errnum));
-}
-
-static void
-warnx(char *fmt, ...)
-{
-	va_list ap;
-	char buf[512];
-
-	va_start(ap, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, ap);
-	va_end(ap);
-
-	fprintf(stderr, "%s: %s\n", argv0, buf);
-}
-#endif
-
-static void
-warn_ssl(long code, char *fmt, ...)
-{
-	va_list ap;
-	char buf[512];
-
-	if (fmt) {
-		va_start(ap, fmt);
-		vsnprintf(buf, sizeof(buf), fmt, ap);
-		va_end(ap);
-
-		warnx("%s: %s", buf, ERR_error_string(code, NULL));
-	} else
-		warnx("%s", ERR_error_string(code, NULL));
+	snprintf(buf, sizeof(buf), "error %d", code);
+	return buf;
 }
 
 static void
 handle_addr(char *name, struct addrinfo *ai)
 {
-	int res, sock=0;
+	int res;
+	SOCKET sock;
 	char numeric[128], port[16];
 	SSL *ssl=NULL;
 	X509 *cert=NULL;
@@ -105,39 +71,56 @@ handle_addr(char *name, struct addrinfo *ai)
 	    port, sizeof(port),
 	    NI_NUMERICHOST | NI_NUMERICSERV);
 	if (res) {
-		warnx("%s: %s\n", name, gai_strerror(res));
+		fprintf(stderr,
+		    PROGNAME ": %s: %s\n",
+		    name,
+		    strerror_wrap((strerror_fn *)gai_strerror, res));
 		goto cleanup;
 	}
 
 	sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-	if (sock == -1) {
-		warn("[%s]:%s (%s)", numeric, port, name);
+	if (sock == INVALID_SOCKET) {
+		fprintf(stderr,
+		    PROGNAME "[%s]:%s (%s): %s\n",
+		    numeric, port, name,
+		    strerror_wrap(strerror, sock_errno()));
 		goto cleanup;
 	}
 
-	if ((res = connect(sock, ai->ai_addr, ai->ai_addrlen)) == -1) {
-		warn("[%s]:%s (%s)", numeric, port, name);
+	res = connect(sock, ai->ai_addr, ai->ai_addrlen);
+	if (res == SOCKET_ERROR) {
+		fprintf(stderr,
+		    PROGNAME "[%s]:%s (%s): %s\n",
+		    numeric, port, name,
+		    strerror_wrap(strerror, sock_errno()));
 		goto cleanup;
 	}
 
 	if (!(ssl = SSL_new(ssl_ctx))) {
-		warn_ssl(ERR_get_error(), "SSL_new");
+		fprintf(stderr,
+		    PROGNAME ": SSL_new: %s\n",
+		    ERR_error_string(ERR_get_error(), NULL));
 		goto cleanup;
 	}
 
 	if ((res = SSL_set_fd(ssl, sock)) != 1) {
-		warn_ssl(SSL_get_error(ssl, res), "SSL_set_fd");
+		fprintf(stderr,
+		    PROGNAME ": SSL_set_fd: %s\n",
+		    ERR_error_string(ERR_get_error(), NULL));
 		goto cleanup;
 	}
 
 	SSL_set_connect_state(ssl);
 
 	if ((res = SSL_set_tlsext_host_name(ssl, name)) != 1)
-		warn_ssl(SSL_get_error(ssl, res),
-		    "SSL_ste_tlsext_host_name");
+		fprintf(stderr,
+		    PROGNAME ": SSL_set_tlsext_host_name: %s\n",
+		    ERR_error_string(ERR_get_error(), NULL));
 
 	if ((res = SSL_do_handshake(ssl)) != 1) {
-		warn_ssl(SSL_get_error(ssl, res), "SSL_do_handshake");
+		fprintf(stderr,
+		    PROGNAME ": SSL_do_handshake: %s\n",
+		    ERR_error_string(SSL_get_error(ssl, res), NULL));
 		goto cleanup;
 	}
 
@@ -167,20 +150,25 @@ cleanup:
 static void
 handle_host(char *name)
 {
-	int ret;
+	int res;
 	struct addrinfo hints, *addrs, *addr;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if ((ret = getaddrinfo(name, "https", &hints, &addrs))) {
-		warnx("%s: %s", name, gai_strerror(ret));
+	if ((res = getaddrinfo(name, "https", &hints, &addrs))) {
+		fprintf(stderr,
+		    PROGNAME ": %s: %s\n",
+		    name,
+		    strerror_wrap((strerror_fn *)gai_strerror, res));
 		return;
 	}
 
 	if (!addrs) {
-		warnx("%s: lookup returned no address", name);
+		fprintf(stderr,
+		    PROGNAME ": %s: lookup returned no address\n",
+		    name);
 		return;
 	}
 
@@ -194,9 +182,16 @@ int
 main(int argc, char **argv)
 {
 	int i;
+#ifdef _WIN32
+	WSADATA wsa;
+	int res;
 
-#if _WIN32
-	argv0 = argv[0];
+	if ((res = WSAStartup(MAKEWORD(2, 0), &wsa)) != 0) {
+		fprintf(stderr,
+		    PROGNAME ": WSAStartup failed: %d\n",
+		    res);
+		return 1;
+	}
 #endif
 
 	for (i=1; i < argc; i++)
@@ -208,8 +203,9 @@ main(int argc, char **argv)
 			puts("certcheck " VERSION "\n");
 			return 0;
 		} else {
-			warnx("bad flag: %s\n", argv[i]);
-			fputs(usage, stderr);
+			fprintf(stderr,
+			    PROGNAME ": bad flag: %s\n%s",
+			    argv[i], usage);
 			return EX_USAGE;
 		}
 
@@ -219,7 +215,9 @@ main(int argc, char **argv)
 	}
 
 	if (!(ssl_ctx = SSL_CTX_new(TLS_method()))) {
-		warn_ssl(ERR_get_error(), NULL);
+		fprintf(stderr,
+		    PROGNAME ": %s\n",
+		    ERR_error_string(ERR_get_error(), NULL));
 		return 1;
 	}
 
@@ -227,6 +225,9 @@ main(int argc, char **argv)
 		handle_host(argv[i]);
 
 	SSL_CTX_free(ssl_ctx);
+#ifdef _WIN32
+	WSACleanup();
+#endif
 
 	return 0;
 }
