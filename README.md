@@ -34,6 +34,7 @@ Installation
 No package is currently available but building is fairly
 straightforward and should work on any Unix-like. On Debian or Ubuntu:
 
+    sudo apt install build-essential libssl-dev git
     git clone https://github.com/sjmulder/certcheck.git
     cd certcheck
     make
