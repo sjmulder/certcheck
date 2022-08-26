@@ -1,0 +1,40 @@
+.Dd August 26, 2022
+.Dt CERTCHECK 1
+.Os
+.Sh NAME
+.Nm certcheck
+.Nd check HTTPS certificate validity times
+.Sh SYNOPSIS
+.Nm
+.Op Fl V
+.Ar host
+.Op Ar ...
+.Sh DESCRIPTION
+Outputs a list of expiry dates for the HTTPS certificates
+for each of the given hosts' addresses.
+.Pp
+The output has three columns: expiration date (UTC), host, and IP/port.
+Since the date is formated like 2022-08-01 12:00,
+the list can be trivially sorted by expiration date with
+.Xr sort 1 .
+.Pp
+The hosts are contacted on port 443 on every resolved address.
+Connections are closed immediately after the TLS handshake completes.
+.Sh EXIT STATUS
+Exists 0 on success, or nonzero for usage and initialization errors.
+Failed attempt to resolve or contact a host yield a printed warning
+but do not cause a nonzero exit.
+.Sh EXAMPLES
+Show expiry dates for example.com and the nonexistent bad.example.com:
+.Bd -literal -offset indent
+$ certcheck example.com bad.example.com
+2023-03-14 23:59:59	example.com	[2606:2800:220:1:248:1893:25c8:1946]:443
+2023-03-14 23:59:59	example.com	[93.184.216.34]:443
+certcheck: bad.example.com: Name or service not known
+.Ed
+.Sh SEE ALSO
+.Xr openssl-s_client 1 ,
+.Xr openssl-x509 1
+.Sh AUTHORS
+.An Sijmen J. Mulder
+.Aq Mt ik@sjmulder.nl
