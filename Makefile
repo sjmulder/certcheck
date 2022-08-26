@@ -10,7 +10,7 @@ LDLIBS+=	-lssl -lcrypto
 all: certcheck
 
 clean:
-	rm -f certcheck *.o
+	rm -f certcheck config.h *.o
 
 install: all
 	install -d ${DESTDIR}${PREFIX}/bin \
