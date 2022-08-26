@@ -7,6 +7,8 @@ VERSION=	0.1
 CFLAGS+=	-Wall -Wextra
 LDLIBS+=	-lssl -lcrypto
 
+-include config.mk
+
 all: certcheck
 
 clean:

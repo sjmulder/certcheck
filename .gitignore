@@ -1,3 +1,4 @@
 *.o
 certcheck
 certcheck.exe
+config.mk
